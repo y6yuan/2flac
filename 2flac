@@ -1,0 +1,78 @@
+#!/bin/bash
+# PS4="##### "
+
+NumOfArg=$#
+DIR=`pwd`
+
+CutToFlac () {
+
+#dirName="FLAC"
+dirName="${file_cue%.*}""[FLAC]"
+echo "保存目录为 $dirName"; mkdir -p "$dirName"
+
+i=0
+while [ -f "temp$i" ]; do
+i=$(($i+1))
+done
+> temp$i
+iconv -f gb18030 -t utf8 "$file_cue" > "temp$i" && mv "temp$i" "$file_cue"
+rm -f "temp$i"
+
+tracks=`gawk -vRS="TRACK" 'END {print NR-1}' "$file_cue"`
+#echo $tracks
+
+shntool split -f "$file_cue" -t '%n.%t' -o flac "$file" -d "$dirName" | \
+gawk -vvar=$tracks 'NR>=1 {print "#正在转换...";print (NR-1)*100/var};{fflush();}'
+
+all_titles=`gawk -vRS='TRACK' -vFS='\n' \
+'{j=0;for(i=1;i<=NF;i++){if($i~/TITLE/){print $i;j=1}}};j==0 {print "TITLE \"#####\""}' "$file_cue" | \
+gawk -F "\"" 'NR>=2 {printf("%s|",$2)}'`
+
+all_artists=`gawk -vRS='TRACK' -vFS='\n' \
+'{j=0;for(i=1;i<=NF;i++){if($i~/PERFORMER/){print $i;j=1}}};\
+j==0 {print "PERFORMER \"#####\""}' "$file_cue" | gawk -F "\"" 'NR>=2 {printf("%s|",$2)}'`
+
+album=`gawk -vRS='TRACK' -vFS='\n' \
+'{j=0;for(i=1;i<=NF;i++){if($i~/TITLE/){print $i;j=1}}};j==0 {print "TITLE \"#####\""}' "$file_cue" | \
+gawk -F "\"" 'NR==1 {printf("%s",$2)}'`
+
+echo "Set attributes"
+#echo "$DIR""/"
+j=1; while [ -n "$all_titles" ]; do
+title=${all_titles%%|*}
+artist=${all_artists%%|*}
+num=`printf "%0${#tracks}d" $j`
+if [ "$title" != "#####" ]; then metaflac --set-tag=TITLE="$title" "$dirName""/""${num}.$title.flac"; fi
+if [ "$artist" != "#####" ]; then metaflac --set-tag=ARTIST="$artist" "$dirName""/""${num}.$title.flac"; fi
+if [ "$album" != "#####" ]; then metaflac --set-tag=ALBUM="$album" "$dirName""/""${num}.$title.flac"; fi
+metaflac --set-tag=TRACKNUMBER="$j" "$dirName""/""${num}.$title.flac"
+#if [ "$title" != "#####" ]; then mv "${num}.$title.flac" "${num:1}.$title.flac"
+#else mv "${num}.$title.flac" "${num:1}.NoTitle.flac"; fi
+((j++))
+all_titles=${all_titles#*|}
+all_artists=${all_artists#*|}
+done
+}
+
+FileType=("ape" "flac" "wav" "wv")
+
+if [ $NumOfArg -eq 1 ] ; then 
+	arg1=$1
+    file=$arg1;
+    ext=${file##*.}
+
+    is_legal=`echo "${FileType[@]}" | grep -iwq "$ext" && echo "yes" || echo "no"`
+
+	if [[ $is_legal == "yes" ]] ; then 
+        file_cue=${file%.*}".cue";
+    fi
+	if [ -e "$file" -a -e "$file_cue" ] ; then
+        CutToFlac
+	else
+	    echo "File does not exist!"
+	fi	    
+else 
+	echo "Wrong argument!!"
+fi
+
+exit 0
